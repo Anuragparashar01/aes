@@ -1,14 +1,4 @@
-key = [ 0x4B7A70E9, 0xB5B32944, 0xDB75092E, 0xC4192623,
-       0xAD6EA6B0, 0x49A7DF7D, 0x9CEE60B8, 0x8FEDB266,
-       0xECAA8C71, 0x699A17FF, 0x5664526C, 0xC2B19EE1,
-       0x193602A5, 0x75094C29]
-p = [
-      0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344,
-      0xA4093822, 0x299F31D0, 0x082EFA98, 0xEC4E6C89,
-      0x452821E6, 0x38D01377, 0xBE5466CF, 0x34E90C6C,
-      0xC0AC29B7, 0xC97C50DD, 0x3F84D5B5, 0xB5470917,
-      0x9216D5D9, 0x8979FB1B
-  ]
+# Example S-boxes (shortened for demonstration: 4 real entries + 252 zeros per S-box)
 s = [
       [
           0xD1310BA6, 0x98DFB5AC, 0x2FFD72DB, 0xD01ADFB7,
@@ -276,75 +266,101 @@ s = [
       ]
 ]
 
-def str_to_int(s):
-    return int.from_bytes(s.encode(), 'big')
 
-def int_to_str(i):
-    return i.to_bytes((i.bit_length() + 7) // 8, 'big').decode()
+# P-array from your code
+p = [
+    0x243F6A88, 0x85A308D3, 0x13198A2E, 0x03707344,
+    0xA4093822, 0x299F31D0, 0x082EFA98, 0xEC4E6C89,
+    0x452821E6, 0x38D01377, 0xBE5466CF, 0x34E90C6C,
+    0xC0AC29B7, 0xC97C50DD, 0x3F84D5B5, 0xB5470917,
+    0x9216D5D9, 0x8979FB1B
+]
 
+key = [
+    0x4B7A70E9, 0xB5B32944, 0xDB75092E, 0xC4192623,
+    0xAD6EA6B0, 0x49A7DF7D, 0x9CEE60B8, 0x8FEDB266,
+    0xECAA8C71, 0x699A17FF, 0x5664526C, 0xC2B19EE1,
+    0x193602A5, 0x75094C29
+]
 
+def pkcs7_pad(data: bytes, block_size: int = 8) -> bytes:
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len] * pad_len)
 
-
+def pkcs7_unpad(data: bytes) -> bytes:
+    pad_len = data[-1]
+    if pad_len < 1 or pad_len > len(data):
+        raise ValueError("Invalid padding")
+    if data[-pad_len:] != bytes([pad_len] * pad_len):
+        raise ValueError("Invalid padding pattern")
+    return data[:-pad_len]
 
 def calculate(L):
-    temp = s[0][L >> 24]
-    temp = (temp + s[1][L >> 16 & 0xff]) % (0x1<<32)
-    temp = temp ^ s[2][L >> 8 & 0xff]
-    temp = (temp + s[3][L & 0xff]) % (0x1<<32)
+    temp = s[0][(L >> 24) & 0xFF]
+    temp = (temp + s[1][(L >> 16) & 0xFF]) % (1 << 32)
+    temp = temp ^ s[2][(L >> 8) & 0xFF]
+    temp = (temp + s[3][L & 0xFF]) % (1 << 32)
     return temp
-def encrypt(data):
-        L = data>>32
-        R = data & 0xffffffff
-        for    i  in range(0,16):
-                L = L ^ p[i ]
-                L1 = calculate(L)
-                R = R ^ calculate(L1)
-                L,R = R,L
-        L,R = R,L
-        L = L ^ p[17]
-        R = R ^ p[16]
-        encrypted = (L<<32) ^ R
-        return encrypted
-def decrypt(data):
+
+def encrypt_block(data_block):
+    data = int.from_bytes(data_block, 'big')
     L = data >> 32
-    R = data & 0xffffffff
+    R = data & 0xFFFFFFFF
+    for i in range(16):
+        L = L ^ p[i]
+        L1 = calculate(L)
+        R = R ^ calculate(L1)
+        L, R = R, L
+    L, R = R, L
+    L = L ^ p[17]
+    R = R ^ p[16]
+    encrypted = (L << 32) | R
+    return encrypted.to_bytes(8, 'big')
+
+def decrypt_block(data_block):
+    data = int.from_bytes(data_block, 'big')
+    L = data >> 32
+    R = data & 0xFFFFFFFF
     for i in range(17, 1, -1):
-                L = L ^ p[i ]
-                L1 = calculate(L)
-                R = R ^ calculate(L1)
-                L,R = R,L
-    L,R = R,L
-    L = L^p[0]
-    R = R^p[1]
-    decrypted_data1 = (L<<32) ^ R
-    return decrypted_data1
+        L = p[i] ^ L
+        L1 = calculate(L)
+        R = R ^ calculate(L1)
+        L, R = R, L
+    L, R = R, L
+    L = L ^ p[0]
+    R = R ^ p[1]
+    decrypted = (L << 32) | R
+    return decrypted.to_bytes(8, 'big')
 
+# Key schedule
+for i in range(18):
+    p[i] = p[i] ^ key[i % len(key)]
 
-# ... [My modification here converted to str] ...
+# Initialize P-array by encrypting zero block repeatedly
+zero_block = b'\x00' * 8
+for i in range(0, 18, 2):
+    zero_block = encrypt_block(zero_block)
+    p[i] = int.from_bytes(zero_block[:4], 'big')
+    p[i+1] = int.from_bytes(zero_block[4:], 'big')
 
-if __name__ == "__main__":
-    for i in range(0, 18):
-        p[i] = p[i] ^ key[i % 14]
+# --- MAIN PROGRAM ---
+plaintext = input("Enter text to encrypt: ").encode()
+padded = pkcs7_pad(plaintext)
 
-    x = 0
-    data = 0
-    for i in range(0, 9):
-        temp = encrypt(data)
-        p[x] = temp >> 32
-        x += 1
-        p[x] = temp & 0xffffffff
-        x += 1
-        data = temp
+# Encrypt
+encrypted = b''
+for i in range(0, len(padded), 8):
+    encrypted += encrypt_block(padded[i:i+8])
 
-    input_str = input("Enter data to encrypt: ")
-    input_int = str_to_int(input_str)
-    if input_int.bit_length() <= 63:
-        print("Valid Input!!!")
-        data_encrypted = encrypt(input_int)
-        print("Encrypted data is: ", data_encrypted)
-        print("Hex value :", hex(data_encrypted))
-        data_decrypted = decrypt(data_encrypted)
-        output_str = int_to_str(data_decrypted)
-        print("Data after decryption is : ", output_str)
-    else:
-        print("Invalid Input!!")
+print("Encrypted (hex):", encrypted.hex())
+
+# Decrypt
+decrypted = b''
+for i in range(0, len(encrypted), 8):
+    decrypted += decrypt_block(encrypted[i:i+8])
+
+try:
+    unpadded = pkcs7_unpad(decrypted)
+    print("Decrypted text:", unpadded.decode())
+except Exception as e:
+    print("Decryption error:", e)
