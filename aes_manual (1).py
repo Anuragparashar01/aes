@@ -15,6 +15,7 @@ ba 78 25 2e 1c a6 b4 c6 e8 dd 74 1f 4b bd 8b 8a
 70 3e b5 66 48 03 f6 0e 61 35 57 b9 86 c1 1d 9e
 e1 f8 98 11 69 d9 8e 94 9b 1e 87 e9 ce 55 28 df
 8c a1 89 0d bf e6 42 68 41 99 2d 0f b0 54 bb 16'''.replace('\n','').replace(' ',''))
+
 inv_s_box = bytes.fromhex('''52 09 6a d5 30 36 a5 38 bf 40 a3 9e 81 f3 d7 fb
 7c e3 39 82 9b 2f ff 87 34 8e 43 44 c4 de e9 cb
 54 7b 94 32 a6 c2 23 3d ee 4c 95 0b 42 fa c3 4e
@@ -31,149 +32,169 @@ fc 56 3e 4b c6 d2 79 20 9a db c0 fe 78 cd 5a f4
 60 51 7f a9 19 b5 4a 0d 2d e5 7a 9f 93 c9 9c ef
 a0 e0 3b 4d ae 2a f5 b0 c8 eb bb 3c 83 53 99 61
 17 2b 04 7e ba 77 d6 26 e1 69 14 63 55 21 0c 7d'''.replace('\n','').replace(' ',''))
+
 rcon = bytes.fromhex('01020408102040801b36')
 
-# --- helpers ---
-def xor_bytes(a,b): return bytes(i^j for i,j in zip(a,b))
+# --- Helpers ---
+def xor_bytes(a, b): return bytes(i ^ j for i, j in zip(a, b))
 def sub_word(w): return bytes(s_box[b] for b in w)
-def rot_word(w): return w[1:]+w[:1]
-def mul(a,b):
- p=0
- for _ in range(8):
-  if b&1: p^=a
-  hi=a&0x80
-  a=(a<<1)&0xFF
-  if hi: a^=0x1b
-  b>>=1
- return p
+def rot_word(w): return w[1:] + w[:1]
+def mul(a, b):
+    p = 0
+    for _ in range(8):
+        if b & 1: p ^= a
+        hi = a & 0x80
+        a = (a << 1) & 0xFF
+        if hi: a ^= 0x1b
+        b >>= 1
+    return p
 def pad(data):
- if len(data)%16==0: return data
- p=16-len(data)%16
- return data+bytes([p]*p)
+    if len(data) % 16 == 0: return data
+    p = 16 - len(data) % 16
+    return data + bytes([p] * p)
 def unpad(data):
- if len(data)==0 or data[-1]>16: return data
- p=data[-1]
- if data[-p:]!=bytes([p]*p): raise ValueError("Bad padding")
- return data[:-p]
+    if len(data) == 0 or data[-1] > 16: return data
+    p = data[-1]
+    if data[-p:] != bytes([p] * p): raise ValueError("Bad padding")
+    return data[:-p]
 
-# --- aes core ---
-def bytes2state(b): return [[b[r+4*c] for c in range(4)] for r in range(4)]
+# --- AES Core ---
+def bytes2state(b): return [[b[r + 4 * c] for c in range(4)] for r in range(4)]
 def state2bytes(s): return bytes([s[r][c] for c in range(4) for r in range(4)])
+
 def key_expansion(k):
- nk=len(k)//4; nr={16:10,24:12,32:14}[len(k)]
- w=[list(k[4*i:4*i+4]) for i in range(nk)]
- for i in range(nk,4*(nr+1)):
-  t=w[i-1][:]
-  if i%nk==0: t=list(xor_bytes(sub_word(rot_word(t)),rcon[i//nk-1:i//nk]+b'\0\0\0'))
-  elif nk>6 and i%nk==4: t=list(sub_word(t))
-  w.append([a^b for a,b in zip(w[i-nk],t)])
- return w
-def add_rk(s,w,r):
- for c in range(4):
-  for r_ in range(4): s[r_][c]^=w[r*4+c][r_]
+    nk = len(k) // 4
+    nr = {16: 10, 24: 12, 32: 14}[len(k)]
+    w = [list(k[4 * i:4 * i + 4]) for i in range(nk)]
+    for i in range(nk, 4 * (nr + 1)):
+        t = w[i - 1][:]
+        if i % nk == 0:
+            t = list(xor_bytes(sub_word(rot_word(t)), rcon[i // nk - 1:i // nk] + b'\0\0\0'))
+        elif nk > 6 and i % nk == 4:
+            t = list(sub_word(t))
+        w.append([a ^ b for a, b in zip(w[i - nk], t)])
+    print("\n🔐 All Round Keys:")
+    for r in range(nr + 1):
+        rk = b''.join(bytes(w[r * 4 + i]) for i in range(4))
+        print(f"Round {r:2}: {rk.hex()}")
+    return w
+
+def add_rk(s, w, r):
+    for c in range(4):
+        for r_ in range(4):
+            s[r_][c] ^= w[r * 4 + c][r_]
+
 def sub_b(s): 
- for r in range(4):
-  for c in range(4): s[r][c]=s_box[s[r][c]]
+    for r in range(4):
+        for c in range(4): s[r][c] = s_box[s[r][c]]
 def inv_sub_b(s): 
- for r in range(4):
-  for c in range(4): s[r][c]=inv_s_box[s[r][c]]
-def shift_r(s):
- for r in range(1,4): s[r]=s[r][r:]+s[r][:r]
-def inv_shift_r(s):
- for r in range(1,4): s[r]=s[r][-r:]+s[r][:-r]
+    for r in range(4):
+        for c in range(4): s[r][c] = inv_s_box[s[r][c]]
+def shift_r(s): 
+    for r in range(1, 4): s[r] = s[r][r:] + s[r][:r]
+def inv_shift_r(s): 
+    for r in range(1, 4): s[r] = s[r][-r:] + s[r][:-r]
 def mix_c(s):
- for c in range(4):
-  a=[s[r][c] for r in range(4)]
-  s[0][c]=mul(a[0],2)^mul(a[1],3)^a[2]^a[3]
-  s[1][c]=a[0]^mul(a[1],2)^mul(a[2],3)^a[3]
-  s[2][c]=a[0]^a[1]^mul(a[2],2)^mul(a[3],3)
-  s[3][c]=mul(a[0],3)^a[1]^a[2]^mul(a[3],2)
+    for c in range(4):
+        a = [s[r][c] for r in range(4)]
+        s[0][c] = mul(a[0], 2) ^ mul(a[1], 3) ^ a[2] ^ a[3]
+        s[1][c] = a[0] ^ mul(a[1], 2) ^ mul(a[2], 3) ^ a[3]
+        s[2][c] = a[0] ^ a[1] ^ mul(a[2], 2) ^ mul(a[3], 3)
+        s[3][c] = mul(a[0], 3) ^ a[1] ^ a[2] ^ mul(a[3], 2)
 def inv_mix_c(s):
- for c in range(4):
-  a=[s[r][c] for r in range(4)]
-  s[0][c]=mul(a[0],14)^mul(a[1],11)^mul(a[2],13)^mul(a[3],9)
-  s[1][c]=mul(a[0],9)^mul(a[1],14)^mul(a[2],11)^mul(a[3],13)
-  s[2][c]=mul(a[0],13)^mul(a[1],9)^mul(a[2],14)^mul(a[3],11)
-  s[3][c]=mul(a[0],11)^mul(a[1],13)^mul(a[2],9)^mul(a[3],14)
-def enc(b,k):
- s=bytes2state(b); w=key_expansion(k); nr={16:10,24:12,32:14}[len(k)]
- add_rk(s,w,0)
- for r in range(1,nr):
-  sub_b(s); shift_r(s); mix_c(s); add_rk(s,w,r)
- sub_b(s); shift_r(s); add_rk(s,w,nr)
- return state2bytes(s)
-def dec(b,k):
- s=bytes2state(b); w=key_expansion(k); nr={16:10,24:12,32:14}[len(k)]
- add_rk(s,w,nr)
- for r in range(nr-1,0,-1):
-  inv_shift_r(s); inv_sub_b(s); add_rk(s,w,r); inv_mix_c(s)
- inv_shift_r(s); inv_sub_b(s); add_rk(s,w,0)
- return state2bytes(s)
+    for c in range(4):
+        a = [s[r][c] for r in range(4)]
+        s[0][c] = mul(a[0], 14) ^ mul(a[1], 11) ^ mul(a[2], 13) ^ mul(a[3], 9)
+        s[1][c] = mul(a[0], 9) ^ mul(a[1], 14) ^ mul(a[2], 11) ^ mul(a[3], 13)
+        s[2][c] = mul(a[0], 13) ^ mul(a[1], 9) ^ mul(a[2], 14) ^ mul(a[3], 11)
+        s[3][c] = mul(a[0], 11) ^ mul(a[1], 13) ^ mul(a[2], 9) ^ mul(a[3], 14)
 
-# --- modes ---
-def ecb_enc(d,k): return b''.join(enc(d[i:i+16],k) for i in range(0,len(d),16))
-def ecb_dec(d,k): return b''.join(dec(d[i:i+16],k) for i in range(0,len(d),16))
-def cbc_enc(d,k,iv):
- out=b''
- prev=iv
- for i in range(0,len(d),16):
-  blk=xor_bytes(d[i:i+16],prev)
-  c=enc(blk,k)
-  out+=c
-  prev=c
- return out
-def cbc_dec(d,k,iv):
- out=b''
- prev=iv
- for i in range(0,len(d),16):
-  c=d[i:i+16]
-  p=dec(c,k)
-  out+=xor_bytes(p,prev)
-  prev=c
- return out
-def ctr_enc(d,k,iv):
- out=b''
- counter=iv
- for i in range(0,len(d),16):
-  keystream=enc(counter,k)
-  out+=xor_bytes(d[i:i+16],keystream[:len(d[i:i+16])])
-  counter=(int.from_bytes(counter,'big')+1).to_bytes(16,'big')
- return out
-def ofb_enc(d,k,iv):
- out=b''
- prev=iv
- for i in range(0,len(d),16):
-  prev=enc(prev,k)
-  out+=xor_bytes(d[i:i+16],prev[:len(d[i:i+16])])
- return out
-ofb_dec=ofb_enc
-ctr_dec=ctr_enc
+def enc(b, w):
+    s = bytes2state(b)
+    nr = len(w) // 4 - 1
+    add_rk(s, w, 0)
+    for r in range(1, nr):
+        sub_b(s); shift_r(s); mix_c(s); add_rk(s, w, r)
+    sub_b(s); shift_r(s); add_rk(s, w, nr)
+    return state2bytes(s)
 
-# --- main ---
-if _name=="main_":
- mode=input("Mode ECB/CBC/CTR/OFB: ").upper()
- key_size=int(input("Key 128/192/256: "))
- key_len={128:16,192:24,256:32}[key_size]
- key=input("Key: ").encode().ljust(key_len,b'\0')[:key_len]
- pt=input("Plaintext: ").encode()
- if mode in ('CBC','CTR','OFB'):
-  iv=input("IV (16 chars): ").encode().ljust(16,b'\0')[:16]
- else:
-  iv=b'\0'*16
- ptp=pad(pt)
- if mode=="ECB":
-  ct=ecb_enc(ptp,key)
-  decpt=unpad(ecb_dec(ct,key))
- elif mode=="CBC":
-  ct=cbc_enc(ptp,key,iv)
-  decpt=unpad(cbc_dec(ct,key,iv))
- elif mode=="CTR":
-  ct=ctr_enc(ptp,key,iv)
-  decpt=unpad(ctr_dec(ct,key,iv))
- elif mode=="OFB":
-  ct=ofb_enc(ptp,key,iv)
-  decpt=unpad(ofb_dec(ct,key,iv))
- else:
-  print("❌ Invalid mode"); exit()
- print("Ciphertext hex:",ct.hex())
- print("Decrypted:",decpt.decode(errors='ignore'))
+def dec(b, w):
+    s = bytes2state(b)
+    nr = len(w) // 4 - 1
+    add_rk(s, w, nr)
+    for r in range(nr - 1, 0, -1):
+        inv_shift_r(s); inv_sub_b(s); add_rk(s, w, r); inv_mix_c(s)
+    inv_shift_r(s); inv_sub_b(s); add_rk(s, w, 0)
+    return state2bytes(s)
+
+# --- Modes ---
+def block_mode(d, w, func):  # ECB
+    return b''.join(func(d[i:i+16], w) for i in range(0, len(d), 16))
+
+def cbc_enc(d, w, iv):
+    out = b''; prev = iv
+    for i in range(0, len(d), 16):
+        blk = xor_bytes(d[i:i+16], prev)
+        c = enc(blk, w)
+        out += c; prev = c
+    return out
+
+def cbc_dec(d, w, iv):
+    out = b''; prev = iv
+    for i in range(0, len(d), 16):
+        c = d[i:i+16]
+        p = dec(c, w)
+        out += xor_bytes(p, prev)
+        prev = c
+    return out
+
+def ctr_mode(d, w, iv):
+    out = b''; counter = iv
+    for i in range(0, len(d), 16):
+        keystream = enc(counter, w)
+        out += xor_bytes(d[i:i+16], keystream[:len(d[i:i+16])])
+        counter = (int.from_bytes(counter, 'big') + 1).to_bytes(16, 'big')
+    return out
+
+def ofb_mode(d, w, iv):
+    out = b''; prev = iv
+    for i in range(0, len(d), 16):
+        prev = enc(prev, w)
+        out += xor_bytes(d[i:i+16], prev[:len(d[i:i+16])])
+    return out
+
+# --- Main ---
+if __name__ == "__main__":
+    mode = input("Mode ECB/CBC/CTR/OFB: ").upper()
+    key_size = int(input("Key 128/192/256: "))
+    key_len = {128: 16, 192: 24, 256: 32}[key_size]
+    key = input("Key: ").encode().ljust(key_len, b'\0')[:key_len]
+    pt = input("Plaintext: ").encode()
+    iv = b'\0' * 16
+    if mode in ('CBC', 'CTR', 'OFB'):
+        iv = input("IV (16 chars): ").encode().ljust(16, b'\0')[:16]
+
+    w = key_expansion(key)
+
+    if mode in ('ECB', 'CBC'):
+        ptp = pad(pt)
+    else:
+        ptp = pt
+
+    if mode == "ECB":
+        ct = block_mode(ptp, w, enc)
+        decpt = unpad(block_mode(ct, w, dec))
+    elif mode == "CBC":
+        ct = cbc_enc(ptp, w, iv)
+        decpt = unpad(cbc_dec(ct, w, iv))
+    elif mode == "CTR":
+        ct = ctr_mode(ptp, w, iv)
+        decpt = ctr_mode(ct, w, iv)
+    elif mode == "OFB":
+        ct = ofb_mode(ptp, w, iv)
+        decpt = ofb_mode(ct, w, iv)
+    else:
+        print("❌ Invalid mode"); exit()
+
+    print("🔒 Ciphertext hex:", ct.hex())
+    print("🔓 Decrypted:", decpt.decode(errors='ignore'))
