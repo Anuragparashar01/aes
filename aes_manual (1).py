@@ -163,15 +163,35 @@ def ofb_mode(d, w, iv):
         out += xor_bytes(d[i:i+16], prev[:len(d[i:i+16])])
     return out
 
+def cfb_enc(d, w, iv):
+    out = b''; prev = iv
+    for i in range(0, len(d), 16):
+        keystream = enc(prev, w)
+        block = d[i:i+16]
+        ct = xor_bytes(block, keystream[:len(block)])
+        out += ct
+        prev = ct
+    return out
+
+def cfb_dec(d, w, iv):
+    out = b''; prev = iv
+    for i in range(0, len(d), 16):
+        keystream = enc(prev, w)
+        block = d[i:i+16]
+        pt = xor_bytes(block, keystream[:len(block)])
+        out += pt
+        prev = block
+    return out
+
 # --- Main ---
 if __name__ == "__main__":
-    mode = input("Mode ECB/CBC/CTR/OFB: ").upper()
+    mode = input("Mode ECB/CBC/CTR/OFB/CFB: ").upper()
     key_size = int(input("Key 128/192/256: "))
     key_len = {128: 16, 192: 24, 256: 32}[key_size]
     key = input("Key: ").encode().ljust(key_len, b'\0')[:key_len]
     pt = input("Plaintext: ").encode()
     iv = b'\0' * 16
-    if mode in ('CBC', 'CTR', 'OFB'):
+    if mode in ('CBC', 'CTR', 'OFB', 'CFB'):
         iv = input("IV (16 chars): ").encode().ljust(16, b'\0')[:16]
 
     w = key_expansion(key)
@@ -193,6 +213,9 @@ if __name__ == "__main__":
     elif mode == "OFB":
         ct = ofb_mode(ptp, w, iv)
         decpt = ofb_mode(ct, w, iv)
+    elif mode == "CFB":
+        ct = cfb_enc(ptp, w, iv)
+        decpt = cfb_dec(ct, w, iv)
     else:
         print("❌ Invalid mode"); exit()
 
