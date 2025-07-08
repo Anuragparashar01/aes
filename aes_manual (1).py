@@ -198,6 +198,7 @@ if __name__ == "__main__":
 
     if mode in ('ECB', 'CBC'):
         ptp = pad(pt)
+        
     else:
         ptp = pt
 
